@@ -12,7 +12,7 @@ import {
   MagnifyingGlassMinusIcon,
   MagnifyingGlassPlusIcon,
 } from "@phosphor-icons/react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import { motion } from "motion/react";
 import { useCallback, useMemo } from "react";
@@ -24,10 +24,9 @@ import { useCopyToClipboard } from "usehooks-ts";
 import { useTemporalStore } from "@/components/resume/store/resume";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useResumeExport } from "@/hooks/use-resume-export";
 import { authClient } from "@/integrations/auth/client";
 import { orpc } from "@/integrations/orpc/client";
-import { downloadFromUrl, downloadWithAnchor, generateFilename } from "@/utils/file";
-import { buildDocx } from "@/utils/resume/docx";
 import { cn } from "@/utils/style";
 
 export function BuilderDock() {
@@ -38,9 +37,12 @@ export function BuilderDock() {
   const { zoomIn, zoomOut, centerView } = useControls();
 
   const { data: resume } = useQuery(orpc.resume.getById.queryOptions({ input: { id: params.resumeId } }));
-  const { mutateAsync: printResumeAsPDF, isPending: isPrinting } = useMutation(
-    orpc.printer.printResumeAsPDF.mutationOptions(),
-  );
+  const {
+    downloadJSON,
+    downloadDOCX,
+    downloadPDF,
+    isPending: exportPending,
+  } = useResumeExport({ resume: resume ?? null });
 
   const { undo, redo, pastStates, futureStates } = useTemporalStore((state) => ({
     undo: state.undo,
@@ -64,45 +66,6 @@ export function BuilderDock() {
     await copyToClipboard(publicUrl);
     toast.success(t`A link to your resume has been copied to clipboard.`);
   }, [publicUrl, copyToClipboard]);
-
-  const onDownloadJSON = useCallback(async () => {
-    if (!resume?.data) return;
-    const filename = generateFilename(resume.name, "json");
-    const jsonString = JSON.stringify(resume.data, null, 2);
-    const blob = new Blob([jsonString], { type: "application/json" });
-
-    downloadWithAnchor(blob, filename);
-  }, [resume?.data]);
-
-  const onDownloadDOCX = useCallback(async () => {
-    if (!resume?.data) return;
-    const filename = generateFilename(resume.name, "docx");
-
-    try {
-      const blob = await buildDocx(resume.data);
-      downloadWithAnchor(blob, filename);
-    } catch {
-      toast.error(t`There was a problem while generating the DOCX, please try again.`);
-    }
-  }, [resume?.data]);
-
-  const onDownloadPDF = useCallback(async () => {
-    if (!resume?.id) return;
-
-    const filename = generateFilename(resume.name, "pdf");
-    const toastId = toast.loading(t`Please wait while your PDF is being generated...`, {
-      description: t`This may take a while depending on the server capacity. Please do not close the window or refresh the page.`,
-    });
-
-    try {
-      const { url } = await printResumeAsPDF({ id: resume.id });
-      await downloadFromUrl(url, filename);
-    } catch {
-      toast.error(t`There was a problem while generating the PDF, please try again in some time.`);
-    } finally {
-      toast.dismiss(toastId);
-    }
-  }, [resume?.id, resume?.name, printResumeAsPDF]);
 
   return (
     <div className="fixed inset-x-0 bottom-4 flex items-center justify-center">
@@ -138,14 +101,24 @@ export function BuilderDock() {
         <DockIcon icon={CubeFocusIcon} title={t`Center view`} onClick={() => centerView()} />
         <div className="mx-1 h-8 w-px bg-border" />
         <DockIcon icon={LinkSimpleIcon} title={t`Copy URL`} onClick={() => onCopyUrl()} />
-        <DockIcon icon={FileJsIcon} title={t`Download JSON`} onClick={() => onDownloadJSON()} />
-        <DockIcon icon={FileDocIcon} title={t`Download DOCX`} onClick={() => onDownloadDOCX()} />
+        <DockIcon
+          icon={FileJsIcon}
+          title={t`Download JSON`}
+          disabled={exportPending.json}
+          onClick={() => void downloadJSON()}
+        />
+        <DockIcon
+          icon={FileDocIcon}
+          title={t`Download DOCX`}
+          disabled={exportPending.docx}
+          onClick={() => void downloadDOCX()}
+        />
         <DockIcon
           title={t`Download PDF`}
-          disabled={isPrinting}
-          onClick={() => onDownloadPDF()}
-          icon={isPrinting ? CircleNotchIcon : FilePdfIcon}
-          iconClassName={cn(isPrinting && "animate-spin")}
+          disabled={exportPending.pdf}
+          onClick={() => void downloadPDF()}
+          icon={exportPending.pdf ? CircleNotchIcon : FilePdfIcon}
+          iconClassName={cn(exportPending.pdf && "animate-spin")}
         />
       </motion.div>
     </div>

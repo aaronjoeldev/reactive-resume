@@ -1,68 +1,29 @@
-import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { CircleNotchIcon, FileDocIcon, FileJsIcon, FilePdfIcon } from "@phosphor-icons/react";
-import { useMutation } from "@tanstack/react-query";
-import { useCallback } from "react";
-import { toast } from "sonner";
 
 import { useResumeStore } from "@/components/resume/store/resume";
 import { Button } from "@/components/ui/button";
-import { orpc } from "@/integrations/orpc/client";
-import { downloadFromUrl, downloadWithAnchor, generateFilename } from "@/utils/file";
-import { buildDocx } from "@/utils/resume/docx";
+import { useResumeExport } from "@/hooks/use-resume-export";
 
 import { SectionBase } from "../shared/section-base";
 
 export function ExportSectionBuilder() {
   const resume = useResumeStore((state) => state.resume);
-
-  const { mutateAsync: printResumeAsPDF, isPending: isPrinting } = useMutation(
-    orpc.printer.printResumeAsPDF.mutationOptions(),
-  );
-
-  const onDownloadJSON = useCallback(() => {
-    const filename = generateFilename(resume.name, "json");
-    const jsonString = JSON.stringify(resume.data, null, 2);
-    const blob = new Blob([jsonString], { type: "application/json" });
-
-    downloadWithAnchor(blob, filename);
-  }, [resume]);
-
-  const onDownloadDOCX = useCallback(async () => {
-    const filename = generateFilename(resume.name, "docx");
-
-    try {
-      const blob = await buildDocx(resume.data);
-      downloadWithAnchor(blob, filename);
-    } catch {
-      toast.error(t`There was a problem while generating the DOCX, please try again.`);
-    }
-  }, [resume]);
-
-  const onDownloadPDF = useCallback(async () => {
-    const filename = generateFilename(resume.name, "pdf");
-    const toastId = toast.loading(t`Please wait while your PDF is being generated...`, {
-      description: t`This may take a while depending on the server capacity. Please do not close the window or refresh the page.`,
-    });
-
-    try {
-      const { url } = await printResumeAsPDF({ id: resume.id });
-      await downloadFromUrl(url, filename);
-    } catch {
-      toast.error(t`There was a problem while generating the PDF, please try again in some time.`);
-    } finally {
-      toast.dismiss(toastId);
-    }
-  }, [resume, printResumeAsPDF]);
+  const { downloadJSON, downloadDOCX, downloadPDF, isPending } = useResumeExport({ resume });
 
   return (
     <SectionBase type="export" className="space-y-4">
       <Button
         variant="outline"
-        onClick={onDownloadJSON}
+        disabled={isPending.json}
+        onClick={() => void downloadJSON()}
         className="h-auto gap-x-4 p-4! text-start font-normal whitespace-normal active:scale-98"
       >
-        <FileJsIcon className="size-6 shrink-0" />
+        {isPending.json ? (
+          <CircleNotchIcon className="size-6 shrink-0 animate-spin" />
+        ) : (
+          <FileJsIcon className="size-6 shrink-0" />
+        )}
         <div className="flex flex-1 flex-col gap-y-1">
           <h6 className="font-medium">JSON</h6>
           <p className="text-xs leading-normal text-muted-foreground">
@@ -76,10 +37,15 @@ export function ExportSectionBuilder() {
 
       <Button
         variant="outline"
-        onClick={onDownloadDOCX}
+        disabled={isPending.docx}
+        onClick={() => void downloadDOCX()}
         className="h-auto gap-x-4 p-4! text-start font-normal whitespace-normal active:scale-98"
       >
-        <FileDocIcon className="size-6 shrink-0" />
+        {isPending.docx ? (
+          <CircleNotchIcon className="size-6 shrink-0 animate-spin" />
+        ) : (
+          <FileDocIcon className="size-6 shrink-0" />
+        )}
         <div className="flex flex-1 flex-col gap-y-1">
           <h6 className="font-medium">DOCX</h6>
           <p className="text-xs leading-normal text-muted-foreground">
@@ -93,11 +59,11 @@ export function ExportSectionBuilder() {
 
       <Button
         variant="outline"
-        disabled={isPrinting}
-        onClick={onDownloadPDF}
+        disabled={isPending.pdf}
+        onClick={() => void downloadPDF()}
         className="h-auto gap-x-4 p-4! text-start font-normal whitespace-normal active:scale-98"
       >
-        {isPrinting ? (
+        {isPending.pdf ? (
           <CircleNotchIcon className="size-6 shrink-0 animate-spin" />
         ) : (
           <FilePdfIcon className="size-6 shrink-0" />
